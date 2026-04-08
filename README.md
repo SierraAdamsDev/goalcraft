@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GoalCraft
 
-## Getting Started
+GoalCraft is a privacy-first IEP goal generator designed to help educators create clear, measurable, and structured goals quickly—without storing any student data.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## ✨ Overview
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Writing IEP goals can be time-consuming and inconsistent. GoalCraft provides a simple, structured workflow that helps teachers generate compliant goals using guided inputs.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+This tool is built with real classroom use in mind:
+- No login required
+- No student data stored
+- Fast, repeatable goal generation
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 🚀 Features (Current)
 
-To learn more about Next.js, take a look at the following resources:
+- Structured goal generation (Condition, Behavior, Measurement, Criteria, Timeline)
+- Dropdown + input-based workflow
+- Real-time goal output
+- Copy-to-clipboard functionality
+- Local-first design (no backend)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 🧠 Roadmap
 
-## Deploy on Vercel
+Planned improvements to make this a real classroom tool:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Goal quality checker (measurable, criteria validation)
+- Multiple goal variations (3 outputs)
+- Smart suggestions (behavior, measurement, supports)
+- Editable goal bank (prebuilt templates)
+- Baseline → growth suggestions
+- Export options (text + PDF)
+- Favorites (local storage)
+- Improved UX for faster teacher workflow
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## 🔒 Privacy First
+
+GoalCraft is designed with student privacy in mind:
+
+- No accounts
+- No database
+- No personal data collection
+- All interactions remain local to the user
+
+---
+
+## 🛠️ Tech Stack
+
+- Next.js
+- TypeScript
+- Tailwind CSS
+- React
+
+---
+
+## 🎯 Purpose
+
+This project demonstrates:
+- Real product thinking
+- Education-focused problem solving
+- Privacy-aware application design
+- Modern frontend development workflow
+
+---
+
+## 📌 Status
+
+🚧 In active development (building in public)
+
+---
+
+## 💡 Author
+
+Built by Sierra Adams
