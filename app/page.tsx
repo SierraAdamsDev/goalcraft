@@ -50,8 +50,12 @@ const criteriaOptions = [
   "3 out of 4 opportunities",
   "4 out of 5 opportunities",
   "4 out of 5 trials",
+  "60%–70% accuracy across 3 consecutive sessions",
+  "75%–80% accuracy across 3 consecutive sessions",
   "80% accuracy across 3 consecutive sessions",
+  "80%–85% accuracy across 3 consecutive sessions",
   "85% accuracy across 3 consecutive sessions",
+  "85%–90% accuracy across 3 consecutive sessions",
   "90% accuracy across 4 consecutive trials",
   "with no more than 1 prompt in 4 out of 5 opportunities",
   "with no more than 2 prompts in 4 out of 5 opportunities",
@@ -1698,10 +1702,76 @@ function buildGoalVariants(formData: GoalFormData) {
   }
 
   return [
-    `${condition}, the student will ${behavior} as measured by ${measurement}, achieving ${criteria} ${timeline}.`,
-    `${condition}, the student will ${behavior} with progress documented through ${measurement}, meeting ${criteria} ${timeline}.`,
-    `${timeline}, the student will ${behavior} ${condition.toLowerCase()} as measured by ${measurement}, achieving ${criteria}.`,
+    `${condition}, the student will ${behavior} as measured by ${measurement}, with mastery defined as ${criteria} ${timeline}.`,
+    `${condition}, the student will ${behavior}. Progress will be monitored using ${measurement}, with the student expected to meet ${criteria} ${timeline}.`,
+    `${timeline}, the student will ${behavior} ${condition.toLowerCase()}. Progress will be checked using ${measurement}, and the goal will be considered met at ${criteria}.`,
   ];
+}
+
+function extractBaselinePercent(baseline: string) {
+  const match = baseline.match(/(\d{1,3})\s*%/);
+
+  if (!match) {
+    return null;
+  }
+
+  const value = Number(match[1]);
+
+  if (Number.isNaN(value)) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(100, value));
+}
+
+function getSuggestedCriteriaFromBaseline(baseline: string) {
+  const percent = extractBaselinePercent(baseline);
+
+  if (percent === null) {
+    return null;
+  }
+
+  let suggestedRange = "";
+
+  if (percent <= 30) {
+    suggestedRange = "60%–70% accuracy across 3 consecutive sessions";
+  } else if (percent <= 45) {
+    suggestedRange = "75%–80% accuracy across 3 consecutive sessions";
+  } else if (percent <= 60) {
+    suggestedRange = "80%–85% accuracy across 3 consecutive sessions";
+  } else if (percent <= 75) {
+    suggestedRange = "85%–90% accuracy across 3 consecutive sessions";
+  } else {
+    suggestedRange = "90% accuracy across 4 consecutive trials";
+  }
+
+  return {
+    baselinePercent: percent,
+    suggestedCriteria: suggestedRange,
+  };
+}
+
+function getRandomDifferentOption(options: string[], currentValue: string) {
+  if (!options.length) {
+    return "";
+  }
+
+  if (options.length === 1) {
+    return options[0];
+  }
+
+  const filteredOptions = options.filter((option) => option !== currentValue);
+
+  if (!filteredOptions.length) {
+    return currentValue;
+  }
+
+  const randomIndex = Math.floor(Math.random() * filteredOptions.length);
+  return filteredOptions[randomIndex];
+}
+
+function flattenGroupedOptions(groups: OptionGroup[]) {
+  return groups.flatMap((group) => group.options);
 }
 
 function getQualityChecks(formData: GoalFormData) {
@@ -1880,10 +1950,16 @@ function countGroupedOptions(groups: OptionGroup[]) {
   return groups.reduce((total, group) => total + group.options.length, 0);
 }
 
+function capitalizeFirstLetter(text: string) {
+  if (!text) return "";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export default function Home() {
   const [formData, setFormData] = useState<GoalFormData>(initialForm);
   const [selectedVariationIndex, setSelectedVariationIndex] = useState(0);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [autoSuggestGrowth, setAutoSuggestGrowth] = useState(true);
 
   const selectedDomainConfig =
     formData.goalDomain && domainConfigs[formData.goalDomain]
@@ -1897,10 +1973,16 @@ export default function Home() {
   const goalVariations = useMemo(() => buildGoalVariants(formData), [formData]);
   const qualityChecks = useMemo(() => getQualityChecks(formData), [formData]);
   const smartSuggestions = useMemo(() => getSmartSuggestions(formData), [formData]);
+  const growthSuggestion = useMemo(
+    () => getSuggestedCriteriaFromBaseline(formData.baseline),
+    [formData.baseline]
+  );
 
-  const selectedGoal =
-    goalVariations[selectedVariationIndex] ||
-    "Select a domain and complete the required fields to generate goal options.";
+ const selectedGoalRaw =
+  goalVariations[selectedVariationIndex] ||
+  "Select a domain and complete the required fields to generate goal options.";
+
+const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
 
   function handleFieldChange(
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -1922,6 +2004,23 @@ export default function Home() {
       return;
     }
 
+    if (name === "baseline") {
+      const nextFormData = {
+        ...formData,
+        baseline: value,
+      };
+
+      const suggestion = getSuggestedCriteriaFromBaseline(value);
+
+      if (autoSuggestGrowth && suggestion) {
+        nextFormData.criteria = suggestion.suggestedCriteria;
+      }
+
+      setFormData(nextFormData);
+      setSelectedVariationIndex(0);
+      return;
+    }
+
     setFormData((prev) => ({
       ...prev,
       [name]: value,
@@ -1938,9 +2037,67 @@ export default function Home() {
     );
 
     if (selectedTemplate) {
-      setFormData(selectedTemplate.data);
+      const nextData = { ...selectedTemplate.data };
+      const suggestion = getSuggestedCriteriaFromBaseline(nextData.baseline);
+
+      if (autoSuggestGrowth && suggestion) {
+        nextData.criteria = suggestion.suggestedCriteria;
+      }
+
+      setFormData(nextData);
       setSelectedVariationIndex(0);
     }
+  }
+
+  function handleRegenerateBehavior() {
+    if (!selectedDomainConfig) return;
+
+    const allBehaviorOptions = flattenGroupedOptions(selectedDomainConfig.behaviorGroups);
+    const nextBehavior = getRandomDifferentOption(allBehaviorOptions, formData.behavior);
+
+    setFormData((prev) => ({
+      ...prev,
+      behavior: nextBehavior,
+    }));
+    setSelectedVariationIndex(0);
+  }
+
+  function handleRegenerateMeasurement() {
+    if (!selectedDomainConfig) return;
+
+    const allMeasurementOptions = flattenGroupedOptions(
+      selectedDomainConfig.measurementGroups
+    );
+    const nextMeasurement = getRandomDifferentOption(
+      allMeasurementOptions,
+      formData.measurement
+    );
+
+    setFormData((prev) => ({
+      ...prev,
+      measurement: nextMeasurement,
+    }));
+    setSelectedVariationIndex(0);
+  }
+
+  function handleRegenerateCriteria() {
+    const nextCriteria = getRandomDifferentOption(criteriaOptions, formData.criteria);
+
+    setFormData((prev) => ({
+      ...prev,
+      criteria: nextCriteria,
+    }));
+    setSelectedVariationIndex(0);
+  }
+
+  function handleApplySuggestedCriteria() {
+    if (!growthSuggestion) return;
+
+    setFormData((prev) => ({
+      ...prev,
+      criteria: growthSuggestion.suggestedCriteria,
+    }));
+    setSelectedVariationIndex(0);
   }
 
   async function handleCopy() {
@@ -1956,6 +2113,7 @@ export default function Home() {
     setFormData(initialForm);
     setSelectedVariationIndex(0);
     setSelectedTemplateId("");
+    setAutoSuggestGrowth(true);
   }
 
   const availableConditionCount = selectedDomainConfig
@@ -2070,6 +2228,17 @@ export default function Home() {
                     {selectedDomainConfig &&
                       renderGroupedOptions(selectedDomainConfig.behaviorGroups)}
                   </select>
+
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={handleRegenerateBehavior}
+                      disabled={!selectedDomainConfig}
+                      className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Regenerate Behavior
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -2090,6 +2259,17 @@ export default function Home() {
                     {selectedDomainConfig &&
                       renderGroupedOptions(selectedDomainConfig.measurementGroups)}
                   </select>
+
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={handleRegenerateMeasurement}
+                      disabled={!selectedDomainConfig}
+                      className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Regenerate Measurement
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -2110,6 +2290,26 @@ export default function Home() {
                       </option>
                     ))}
                   </select>
+
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={handleRegenerateCriteria}
+                      className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium transition hover:bg-slate-100"
+                    >
+                      Regenerate Criteria
+                    </button>
+
+                    {growthSuggestion && (
+                      <button
+                        type="button"
+                        onClick={handleApplySuggestedCriteria}
+                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 transition hover:bg-emerald-100"
+                      >
+                        Use Suggested Growth
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -2133,18 +2333,46 @@ export default function Home() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium" htmlFor="baseline">
-                    Baseline (optional)
-                  </label>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                    <label className="block text-sm font-medium" htmlFor="baseline">
+                      Baseline (optional)
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={autoSuggestGrowth}
+                        onChange={(event) => setAutoSuggestGrowth(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      Auto-Suggest Growth
+                    </label>
+                  </div>
+
                   <input
                     id="baseline"
                     name="baseline"
                     type="text"
                     value={formData.baseline}
                     onChange={handleFieldChange}
-                    placeholder="Example: Currently completes this skill with frequent prompting."
+                    placeholder="Example: Currently answers comprehension questions with about 45% accuracy."
                     className="w-full rounded-xl border border-slate-300 px-4 py-3"
                   />
+
+                  <p className="mt-2 text-xs text-slate-500">
+                    Tip: include a percentage in the baseline to trigger a rule-based criteria suggestion.
+                  </p>
+
+                  {growthSuggestion && (
+                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                      <p className="font-semibold">
+                        Growth suggestion based on baseline: {growthSuggestion.baselinePercent}%
+                      </p>
+                      <p className="mt-1">
+                        Suggested criteria: {growthSuggestion.suggestedCriteria}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2223,13 +2451,24 @@ export default function Home() {
                           : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                       } ${!goalVariations.length ? "cursor-not-allowed opacity-50" : ""}`}
                     >
-                      Option {index + 1}
+                      {index === 0
+                        ? "Formal IEP"
+                        : index === 1
+                          ? "Progress Monitoring"
+                          : "Plain Language"}
                     </button>
                   ))}
                 </div>
               </div>
 
               <div className="mt-6 rounded-2xl bg-slate-50 p-6">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {selectedVariationIndex === 0
+                    ? "Formal IEP Version"
+                    : selectedVariationIndex === 1
+                      ? "Progress-Monitoring Version"
+                      : "Plain-Language Version"}
+                </p>
                 <p className="leading-7 text-slate-800">{selectedGoal}</p>
               </div>
 
