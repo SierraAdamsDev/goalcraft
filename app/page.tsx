@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type GoalFormData = {
   goalDomain: string;
@@ -29,6 +29,17 @@ type GoalTemplate = {
   domain: string;
   data: GoalFormData;
 };
+
+type SavedGoal = {
+  id: string;
+  title: string;
+  domain: string;
+  goalText: string;
+  formData: GoalFormData;
+  savedAt: string;
+};
+
+const FAVORITES_STORAGE_KEY = "goalcraft-favorites";
 
 const goalDomains = [
   "Academic",
@@ -1694,6 +1705,11 @@ const goalTemplates: GoalTemplate[] = [
   },
 ];
 
+function capitalizeFirstLetter(text: string) {
+  if (!text) return "";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function buildGoalVariants(formData: GoalFormData) {
   const { condition, behavior, measurement, criteria, timeline } = formData;
 
@@ -1950,25 +1966,62 @@ function countGroupedOptions(groups: OptionGroup[]) {
   return groups.reduce((total, group) => total + group.options.length, 0);
 }
 
-function capitalizeFirstLetter(text: string) {
-  if (!text) return "";
-  return text.charAt(0).toUpperCase() + text.slice(1);
+function buildSavedGoalTitle(formData: GoalFormData) {
+  if (formData.behavior) {
+    return capitalizeFirstLetter(formData.behavior);
+  }
+
+  if (formData.goalDomain) {
+    return `${formData.goalDomain} Goal`;
+  }
+
+  return "Saved Goal";
+}
+
+function formatSavedDate(dateString: string) {
+  try {
+    return new Date(dateString).toLocaleString();
+  } catch {
+    return dateString;
+  }
 }
 
 export default function Home() {
   const [formData, setFormData] = useState<GoalFormData>(initialForm);
   const [selectedVariationIndex, setSelectedVariationIndex] = useState(0);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [autoSuggestGrowth, setAutoSuggestGrowth] = useState(true);
+
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateDomainFilter, setTemplateDomainFilter] = useState("All Domains");
+  const [loadedTemplateId, setLoadedTemplateId] = useState<number | null>(null);
+  const [templateFeedback, setTemplateFeedback] = useState("");
+
+  const [savedGoals, setSavedGoals] = useState<SavedGoal[]>(() => {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const storedFavorites = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+
+    if (!storedFavorites) {
+      return [];
+    }
+
+    const parsedFavorites = JSON.parse(storedFavorites) as SavedGoal[];
+
+    return Array.isArray(parsedFavorites) ? parsedFavorites : [];
+  } catch (error) {
+    console.error("Failed to load saved goals.", error);
+    return [];
+  }
+});
+  const [saveFeedback, setSaveFeedback] = useState("");
 
   const selectedDomainConfig =
     formData.goalDomain && domainConfigs[formData.goalDomain]
       ? domainConfigs[formData.goalDomain]
       : null;
-
-  const filteredTemplates = formData.goalDomain
-    ? goalTemplates.filter((template) => template.domain === formData.goalDomain)
-    : [];
 
   const goalVariations = useMemo(() => buildGoalVariants(formData), [formData]);
   const qualityChecks = useMemo(() => getQualityChecks(formData), [formData]);
@@ -1978,16 +2031,52 @@ export default function Home() {
     [formData.baseline]
   );
 
- const selectedGoalRaw =
-  goalVariations[selectedVariationIndex] ||
-  "Select a domain and complete the required fields to generate goal options.";
+  const filteredTemplates = useMemo(() => {
+    const normalizedSearch = templateSearch.trim().toLowerCase();
 
-const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
+    return goalTemplates.filter((template) => {
+      const matchesDomain =
+        templateDomainFilter === "All Domains" || template.domain === templateDomainFilter;
+
+      const searchableText = [
+        template.title,
+        template.domain,
+        template.data.behavior,
+        template.data.condition,
+        template.data.measurement,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch =
+        !normalizedSearch || searchableText.includes(normalizedSearch);
+
+      return matchesDomain && matchesSearch;
+    });
+  }, [templateSearch, templateDomainFilter]);
+
+  const selectedGoalRaw =
+    goalVariations[selectedVariationIndex] ||
+    "Select a domain and complete the required fields to generate goal options.";
+
+  const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
+
+
+  useEffect(() => {
+    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(savedGoals));
+  }, [savedGoals]);
+
+  function clearTransientFeedback() {
+    setTemplateFeedback("");
+    setSaveFeedback("");
+  }
 
   function handleFieldChange(
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
     const { name, value } = event.target;
+
+    clearTransientFeedback();
 
     if (name === "goalDomain") {
       setFormData({
@@ -1999,8 +2088,8 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
         timeline: "",
         baseline: "",
       });
-      setSelectedTemplateId("");
       setSelectedVariationIndex(0);
+      setLoadedTemplateId(null);
       return;
     }
 
@@ -2028,25 +2117,19 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
     setSelectedVariationIndex(0);
   }
 
-  function handleTemplateChange(event: React.ChangeEvent<HTMLSelectElement>) {
-    const templateId = event.target.value;
-    setSelectedTemplateId(templateId);
+  function loadTemplate(template: GoalTemplate) {
+    const nextData = { ...template.data };
+    const suggestion = getSuggestedCriteriaFromBaseline(nextData.baseline);
 
-    const selectedTemplate = goalTemplates.find(
-      (template) => template.id === Number(templateId)
-    );
-
-    if (selectedTemplate) {
-      const nextData = { ...selectedTemplate.data };
-      const suggestion = getSuggestedCriteriaFromBaseline(nextData.baseline);
-
-      if (autoSuggestGrowth && suggestion) {
-        nextData.criteria = suggestion.suggestedCriteria;
-      }
-
-      setFormData(nextData);
-      setSelectedVariationIndex(0);
+    if (autoSuggestGrowth && suggestion) {
+      nextData.criteria = suggestion.suggestedCriteria;
     }
+
+    setFormData(nextData);
+    setLoadedTemplateId(template.id);
+    setSelectedVariationIndex(0);
+    setTemplateFeedback(`Loaded template: ${template.title}`);
+    setSaveFeedback("");
   }
 
   function handleRegenerateBehavior() {
@@ -2060,6 +2143,7 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
       behavior: nextBehavior,
     }));
     setSelectedVariationIndex(0);
+    setSaveFeedback("");
   }
 
   function handleRegenerateMeasurement() {
@@ -2078,6 +2162,7 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
       measurement: nextMeasurement,
     }));
     setSelectedVariationIndex(0);
+    setSaveFeedback("");
   }
 
   function handleRegenerateCriteria() {
@@ -2088,6 +2173,7 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
       criteria: nextCriteria,
     }));
     setSelectedVariationIndex(0);
+    setSaveFeedback("");
   }
 
   function handleApplySuggestedCriteria() {
@@ -2098,6 +2184,7 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
       criteria: growthSuggestion.suggestedCriteria,
     }));
     setSelectedVariationIndex(0);
+    setSaveFeedback("");
   }
 
   async function handleCopy() {
@@ -2109,11 +2196,55 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
     }
   }
 
+  function handleSaveGoal() {
+    if (!goalVariations.length) {
+      setSaveFeedback("Complete the goal fields before saving.");
+      return;
+    }
+
+    const goalAlreadySaved = savedGoals.some(
+      (savedGoal) =>
+        savedGoal.goalText === selectedGoal && savedGoal.domain === formData.goalDomain
+    );
+
+    if (goalAlreadySaved) {
+      setSaveFeedback("This goal is already saved.");
+      return;
+    }
+
+    const newSavedGoal: SavedGoal = {
+      id: crypto.randomUUID(),
+      title: buildSavedGoalTitle(formData),
+      domain: formData.goalDomain || "Unassigned",
+      goalText: selectedGoal,
+      formData: { ...formData },
+      savedAt: new Date().toISOString(),
+    };
+
+    setSavedGoals((prev) => [newSavedGoal, ...prev]);
+    setSaveFeedback("Goal saved to favorites.");
+  }
+
+  function handleLoadSavedGoal(savedGoal: SavedGoal) {
+    setFormData(savedGoal.formData);
+    setSelectedVariationIndex(0);
+    setLoadedTemplateId(null);
+    setTemplateFeedback(`Loaded saved goal: ${savedGoal.title}`);
+    setSaveFeedback("");
+  }
+
+  function handleDeleteSavedGoal(savedGoalId: string) {
+    setSavedGoals((prev) => prev.filter((savedGoal) => savedGoal.id !== savedGoalId));
+    setSaveFeedback("Saved goal deleted.");
+  }
+
   function handleReset() {
     setFormData(initialForm);
     setSelectedVariationIndex(0);
-    setSelectedTemplateId("");
     setAutoSuggestGrowth(true);
+    setLoadedTemplateId(null);
+    setTemplateFeedback("");
+    setSaveFeedback("");
   }
 
   const availableConditionCount = selectedDomainConfig
@@ -2378,51 +2509,117 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-              <h2 className="text-2xl font-semibold">Goal Bank</h2>
-              <p className="mt-2 text-sm text-slate-500">
-                Pick a template after selecting a domain, then edit as needed.
-              </p>
-
-              <div className="mt-6 grid gap-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <label className="mb-2 block text-sm font-medium" htmlFor="template">
-                    Template
+                  <h2 className="text-2xl font-semibold">Goal Bank</h2>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Search, filter, load, then edit the template before generating the final goal.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  {filteredTemplates.length} template{filteredTemplates.length === 1 ? "" : "s"} found
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium" htmlFor="templateSearch">
+                    Search Templates
+                  </label>
+                  <input
+                    id="templateSearch"
+                    type="text"
+                    value={templateSearch}
+                    onChange={(event) => setTemplateSearch(event.target.value)}
+                    placeholder="Search by title, skill, or wording"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium" htmlFor="templateDomainFilter">
+                    Filter by Domain
                   </label>
                   <select
-                    id="template"
-                    value={selectedTemplateId}
-                    onChange={handleTemplateChange}
-                    disabled={!formData.goalDomain}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 disabled:cursor-not-allowed disabled:bg-slate-100"
+                    id="templateDomainFilter"
+                    value={templateDomainFilter}
+                    onChange={(event) => setTemplateDomainFilter(event.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3"
                   >
-                    <option value="">
-                      {formData.goalDomain ? "Select template" : "Choose a domain first"}
-                    </option>
-                    {filteredTemplates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.title}
+                    <option value="All Domains">All Domains</option>
+                    {goalDomains.map((domain) => (
+                      <option key={domain} value={domain}>
+                        {domain}
                       </option>
                     ))}
                   </select>
                 </div>
+              </div>
 
-                {selectedTemplateId && (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                    Loaded template:{" "}
-                    <span className="font-medium">
-                      {
-                        goalTemplates.find(
-                          (template) => template.id === Number(selectedTemplateId)
-                        )?.title
-                      }
-                    </span>
-                  </div>
-                )}
+              {templateFeedback && (
+                <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                  {templateFeedback}
+                </div>
+              )}
 
-                {formData.goalDomain && (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                    {filteredTemplates.length} template{filteredTemplates.length === 1 ? "" : "s"} available in this domain.
+              <div className="mt-6 grid gap-4">
+                {filteredTemplates.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
+                    No templates matched that search.
                   </div>
+                ) : (
+                  filteredTemplates.map((template) => {
+                    const isLoaded = loadedTemplateId === template.id;
+
+                    return (
+                      <div
+                        key={template.id}
+                        className={`rounded-2xl border p-5 transition ${
+                          isLoaded
+                            ? "border-emerald-300 bg-emerald-50"
+                            : "border-slate-200 bg-white"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="max-w-3xl">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-lg font-semibold">{template.title}</h3>
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                                {template.domain}
+                              </span>
+                              {isLoaded && (
+                                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                                  Loaded
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="mt-3 text-sm text-slate-700">
+                              <span className="font-semibold">Behavior:</span>{" "}
+                              {capitalizeFirstLetter(template.data.behavior)}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              <span className="font-semibold">Condition:</span>{" "}
+                              {template.data.condition}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              <span className="font-semibold">Measurement:</span>{" "}
+                              {template.data.measurement}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => loadTemplate(template)}
+                            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+                          >
+                            Load Template
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -2434,7 +2631,7 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
                 <div>
                   <h2 className="text-2xl font-semibold">Generated Goal Options</h2>
                   <p className="mt-2 text-sm text-slate-500">
-                    Choose the version that reads best, then copy it.
+                    Choose the version that reads best, then copy or save it.
                   </p>
                 </div>
 
@@ -2471,6 +2668,12 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
                 </p>
                 <p className="leading-7 text-slate-800">{selectedGoal}</p>
               </div>
+
+              {saveFeedback && (
+                <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                  {saveFeedback}
+                </div>
+              )}
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 p-5">
@@ -2522,11 +2725,85 @@ const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
 
                 <button
                   type="button"
+                  onClick={handleSaveGoal}
+                  className="rounded-xl border border-slate-300 px-5 py-3 transition hover:bg-slate-100"
+                >
+                  Save Goal
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleReset}
                   className="rounded-xl border border-slate-300 px-5 py-3 transition hover:bg-slate-100"
                 >
                   Reset Form
                 </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold">Saved Goals</h2>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Saved locally in this browser so teachers can reuse strong goals faster.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  {savedGoals.length} saved
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-4">
+                {savedGoals.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
+                    No saved goals yet. Build a goal, then click Save Goal.
+                  </div>
+                ) : (
+                  savedGoals.map((savedGoal) => (
+                    <div
+                      key={savedGoal.id}
+                      className="rounded-2xl border border-slate-200 bg-white p-5"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="max-w-3xl">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-lg font-semibold">{savedGoal.title}</h3>
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                              {savedGoal.domain}
+                            </span>
+                          </div>
+
+                          <p className="mt-2 text-xs uppercase tracking-wide text-slate-500">
+                            Saved {formatSavedDate(savedGoal.savedAt)}
+                          </p>
+
+                          <p className="mt-3 text-sm leading-6 text-slate-700">
+                            {savedGoal.goalText}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleLoadSavedGoal(savedGoal)}
+                            className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium transition hover:bg-slate-100"
+                          >
+                            Load
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSavedGoal(savedGoal.id)}
+                            className="rounded-xl border border-rose-300 px-4 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
