@@ -3098,6 +3098,13 @@ Timeline: ${formData.timeline}
           </section>
         </div>
       </div>
+      <div className="mt-10 text-center text-sm text-slate-500">
+        <a href="/privacy" className="underline underline-offset-4 hover:text-slate-700">
+          Privacy Policy
+        </a>
+      </div>
     </main>
   );
+  
 }
+
