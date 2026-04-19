@@ -39,6 +39,11 @@ type SavedGoal = {
   savedAt: string;
 };
 
+type FieldWarning = {
+  status: "pass" | "warn" | "fail";
+  message: string;
+};
+
 const FAVORITES_STORAGE_KEY = "goalcraft-favorites";
 
 const goalDomains = [
@@ -1790,7 +1795,79 @@ function flattenGroupedOptions(groups: OptionGroup[]) {
   return groups.flatMap((group) => group.options);
 }
 
+function hasVagueWording(text: string) {
+  return /\b(improve|improves|improved|increase|increases|increased|better|more|less|progress|grow|development)\b/i.test(
+    text
+  );
+}
+
+function hasMeasurableLanguage(text: string) {
+  return /(%|percent|opportunities|trials|sessions|minutes|prompt|prompts|independence|accuracy|frequency|duration|consecutive)/i.test(
+    text
+  );
+}
+
+function getCriteriaWarning(criteria: string): FieldWarning {
+  if (!criteria) {
+    return {
+      status: "fail",
+      message: "Criteria is required for a measurable goal.",
+    };
+  }
+
+  if (!hasMeasurableLanguage(criteria)) {
+    return {
+      status: "warn",
+      message: "Criteria may be weak. Use accuracy, prompts, trials, minutes, or opportunities.",
+    };
+  }
+
+  return {
+    status: "pass",
+    message: "Criteria looks measurable.",
+  };
+}
+
+function getBehaviorWarning(behavior: string): FieldWarning {
+  if (!behavior) {
+    return {
+      status: "fail",
+      message: "Behavior is required.",
+    };
+  }
+
+  if (hasVagueWording(behavior)) {
+    return {
+      status: "warn",
+      message: "Behavior contains vague wording. Use an observable action instead.",
+    };
+  }
+
+  return {
+    status: "pass",
+    message: "Behavior looks observable.",
+  };
+}
+
+function getBaselineWarning(baseline: string): FieldWarning {
+  if (!baseline.trim()) {
+    return {
+      status: "warn",
+      message: "Baseline is missing. Add current performance for stronger review readiness.",
+    };
+  }
+
+  return {
+    status: "pass",
+    message: "Baseline is present.",
+  };
+}
+
 function getQualityChecks(formData: GoalFormData) {
+  const behaviorWarning = getBehaviorWarning(formData.behavior);
+  const criteriaWarning = getCriteriaWarning(formData.criteria);
+  const baselineWarning = getBaselineWarning(formData.baseline);
+
   return [
     {
       label: "Goal domain selected",
@@ -1807,11 +1884,9 @@ function getQualityChecks(formData: GoalFormData) {
         : "Add a condition for when or how the skill will be performed.",
     },
     {
-      label: "Behavior is measurable",
-      status: formData.behavior ? "pass" : "fail",
-      message: formData.behavior
-        ? "A target behavior is included."
-        : "Add a clear, observable behavior.",
+      label: "Behavior is observable",
+      status: behaviorWarning.status,
+      message: behaviorWarning.message,
     },
     {
       label: "Measurement included",
@@ -1821,25 +1896,9 @@ function getQualityChecks(formData: GoalFormData) {
         : "Add how progress will be measured.",
     },
     {
-      label: "Criteria is specific",
-      status:
-        formData.criteria &&
-        /%|opportunities|trials|sessions|minutes|prompt|independence|accuracy/i.test(
-          formData.criteria
-        )
-          ? "pass"
-          : formData.criteria
-            ? "warn"
-            : "fail",
-      message:
-        formData.criteria &&
-        /%|opportunities|trials|sessions|minutes|prompt|independence|accuracy/i.test(
-          formData.criteria
-        )
-          ? "Criteria looks specific."
-          : formData.criteria
-            ? "Criteria may be too vague. Try using prompts, opportunities, minutes, or accuracy."
-            : "Add success criteria.",
+      label: "Criteria is measurable",
+      status: criteriaWarning.status,
+      message: criteriaWarning.message,
     },
     {
       label: "Timeline present",
@@ -1847,6 +1906,24 @@ function getQualityChecks(formData: GoalFormData) {
       message: formData.timeline
         ? "A timeline is included."
         : "Add a timeline for when the goal should be achieved.",
+    },
+    {
+      label: "Baseline included",
+      status: baselineWarning.status,
+      message: baselineWarning.message,
+    },
+    {
+      label: "Avoid vague wording",
+      status: formData.behavior
+        ? hasVagueWording(formData.behavior)
+          ? "warn"
+          : "pass"
+        : "fail",
+      message: !formData.behavior
+        ? "Add a target behavior first."
+        : hasVagueWording(formData.behavior)
+          ? "Avoid words like improve or increase unless the skill is clearly defined."
+          : "Behavior wording is specific enough.",
     },
   ];
 }
@@ -1861,6 +1938,40 @@ function getStatusIcon(status: string) {
   if (status === "pass") return "✅";
   if (status === "warn") return "⚠️";
   return "❌";
+}
+
+function getInputStyles(status: FieldWarning["status"]) {
+  if (status === "fail") {
+    return "border-rose-400 bg-rose-50";
+  }
+
+  if (status === "warn") {
+    return "border-amber-400 bg-amber-50";
+  }
+
+  return "border-slate-300 bg-white";
+}
+
+function getComplianceTips(formData: GoalFormData) {
+  const tips = [
+    "Avoid vague wording such as improve or increase unless the exact skill is named.",
+    "Use observable behavior that someone can actually see or count.",
+    "Use measurable criteria with accuracy, prompts, opportunities, trials, or duration.",
+  ];
+
+  if (!formData.baseline.trim()) {
+    tips.push("Add a baseline so reviewers can compare current performance to the target.");
+  }
+
+  if (!formData.measurement) {
+    tips.push("Choose a progress-monitoring method so the goal can be documented consistently.");
+  }
+
+  if (!formData.timeline) {
+    tips.push("Include a timeline so the expected review window is clear.");
+  }
+
+  return tips;
 }
 
 function getSmartSuggestions(formData: GoalFormData) {
@@ -1990,6 +2101,7 @@ export default function Home() {
   const [formData, setFormData] = useState<GoalFormData>(initialForm);
   const [selectedVariationIndex, setSelectedVariationIndex] = useState(0);
   const [autoSuggestGrowth, setAutoSuggestGrowth] = useState(true);
+  const [formatType, setFormatType] = useState<"paragraph" | "structured">("paragraph");
 
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateDomainFilter, setTemplateDomainFilter] = useState("All Domains");
@@ -1997,25 +2109,26 @@ export default function Home() {
   const [templateFeedback, setTemplateFeedback] = useState("");
 
   const [savedGoals, setSavedGoals] = useState<SavedGoal[]>(() => {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const storedFavorites = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
-
-    if (!storedFavorites) {
+    if (typeof window === "undefined") {
       return [];
     }
 
-    const parsedFavorites = JSON.parse(storedFavorites) as SavedGoal[];
+    try {
+      const storedFavorites = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
 
-    return Array.isArray(parsedFavorites) ? parsedFavorites : [];
-  } catch (error) {
-    console.error("Failed to load saved goals.", error);
-    return [];
-  }
-});
+      if (!storedFavorites) {
+        return [];
+      }
+
+      const parsedFavorites = JSON.parse(storedFavorites) as SavedGoal[];
+
+      return Array.isArray(parsedFavorites) ? parsedFavorites : [];
+    } catch (error) {
+      console.error("Failed to load saved goals.", error);
+      return [];
+    }
+  });
+
   const [saveFeedback, setSaveFeedback] = useState("");
 
   const selectedDomainConfig =
@@ -2026,8 +2139,24 @@ export default function Home() {
   const goalVariations = useMemo(() => buildGoalVariants(formData), [formData]);
   const qualityChecks = useMemo(() => getQualityChecks(formData), [formData]);
   const smartSuggestions = useMemo(() => getSmartSuggestions(formData), [formData]);
+  const complianceTips = useMemo(() => getComplianceTips(formData), [formData]);
   const growthSuggestion = useMemo(
     () => getSuggestedCriteriaFromBaseline(formData.baseline),
+    [formData.baseline]
+  );
+
+  const behaviorWarning = useMemo(
+    () => getBehaviorWarning(formData.behavior),
+    [formData.behavior]
+  );
+
+  const criteriaWarning = useMemo(
+    () => getCriteriaWarning(formData.criteria),
+    [formData.criteria]
+  );
+
+  const baselineWarning = useMemo(
+    () => getBaselineWarning(formData.baseline),
     [formData.baseline]
   );
 
@@ -2060,7 +2189,6 @@ export default function Home() {
     "Select a domain and complete the required fields to generate goal options.";
 
   const selectedGoal = capitalizeFirstLetter(selectedGoalRaw);
-
 
   useEffect(() => {
     window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(savedGoals));
@@ -2195,7 +2323,28 @@ export default function Home() {
       alert("Copy failed. Please copy manually.");
     }
   }
+  function handleDownloadTxt() {
+  const content =
+    formatType === "structured"
+      ? `
+Condition: ${formData.condition}
+Behavior: ${formData.behavior}
+Measurement: ${formData.measurement}
+Criteria: ${formData.criteria}
+Timeline: ${formData.timeline}
+      `
+      : selectedGoal;
 
+  const blob = new Blob([content], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "iep-goal.txt";
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
   function handleSaveGoal() {
     if (!goalVariations.length) {
       setSaveFeedback("Complete the goal fields before saving.");
@@ -2351,7 +2500,9 @@ export default function Home() {
                     value={formData.behavior}
                     onChange={handleFieldChange}
                     disabled={!selectedDomainConfig}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 disabled:cursor-not-allowed disabled:bg-slate-100"
+                    className={`w-full rounded-xl border px-4 py-3 disabled:cursor-not-allowed disabled:bg-slate-100 ${getInputStyles(
+                      behaviorWarning.status
+                    )}`}
                   >
                     <option value="">
                       {selectedDomainConfig ? "Select behavior" : "Choose a domain first"}
@@ -2359,6 +2510,18 @@ export default function Home() {
                     {selectedDomainConfig &&
                       renderGroupedOptions(selectedDomainConfig.behaviorGroups)}
                   </select>
+
+                  <p
+                    className={`mt-2 text-xs ${
+                      behaviorWarning.status === "fail"
+                        ? "text-rose-700"
+                        : behaviorWarning.status === "warn"
+                          ? "text-amber-700"
+                          : "text-emerald-700"
+                    }`}
+                  >
+                    {behaviorWarning.message}
+                  </p>
 
                   <div className="mt-3">
                     <button
@@ -2412,7 +2575,9 @@ export default function Home() {
                     name="criteria"
                     value={formData.criteria}
                     onChange={handleFieldChange}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                    className={`w-full rounded-xl border px-4 py-3 ${getInputStyles(
+                      criteriaWarning.status
+                    )}`}
                   >
                     <option value="">Select criteria</option>
                     {criteriaOptions.map((option) => (
@@ -2421,6 +2586,18 @@ export default function Home() {
                       </option>
                     ))}
                   </select>
+
+                  <p
+                    className={`mt-2 text-xs ${
+                      criteriaWarning.status === "fail"
+                        ? "text-rose-700"
+                        : criteriaWarning.status === "warn"
+                          ? "text-amber-700"
+                          : "text-emerald-700"
+                    }`}
+                  >
+                    {criteriaWarning.message}
+                  </p>
 
                   <div className="mt-3 flex flex-wrap gap-3">
                     <button
@@ -2466,7 +2643,7 @@ export default function Home() {
                 <div>
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                     <label className="block text-sm font-medium" htmlFor="baseline">
-                      Baseline (optional)
+                      Baseline (recommended)
                     </label>
 
                     <label className="flex items-center gap-2 text-sm text-slate-600">
@@ -2487,8 +2664,22 @@ export default function Home() {
                     value={formData.baseline}
                     onChange={handleFieldChange}
                     placeholder="Example: Currently answers comprehension questions with about 45% accuracy."
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                    className={`w-full rounded-xl border px-4 py-3 ${getInputStyles(
+                      baselineWarning.status
+                    )}`}
                   />
+
+                  <p
+                    className={`mt-2 text-xs ${
+                      baselineWarning.status === "fail"
+                        ? "text-rose-700"
+                        : baselineWarning.status === "warn"
+                          ? "text-amber-700"
+                          : "text-emerald-700"
+                    }`}
+                  >
+                    {baselineWarning.message}
+                  </p>
 
                   <p className="mt-2 text-xs text-slate-500">
                     Tip: include a percentage in the baseline to trigger a rule-based criteria suggestion.
@@ -2630,9 +2821,35 @@ export default function Home() {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-semibold">Generated Goal Options</h2>
-                  <p className="mt-2 text-sm text-slate-500">
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormatType("paragraph")}
+                      className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                        formatType === "paragraph"
+                          ? "bg-slate-900 text-white"
+                          : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      Paragraph
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setFormatType("structured")}
+                      className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                        formatType === "structured"
+                          ? "bg-slate-900 text-white"
+                          : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      Structured
+                    </button>
+                  </div>
+                        <p className="mt-2 text-sm text-slate-500">
                     Choose the version that reads best, then copy or save it.
                   </p>
+                </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -2666,8 +2883,17 @@ export default function Home() {
                       ? "Progress-Monitoring Version"
                       : "Plain-Language Version"}
                 </p>
-                <p className="leading-7 text-slate-800">{selectedGoal}</p>
-              </div>
+                {formatType === "paragraph" ? (
+                    <p className="leading-7 text-slate-800">{selectedGoal}</p>
+                  ) : (
+                    <div className="text-sm space-y-2">
+                      <p><strong>Condition:</strong> {formData.condition}</p>
+                      <p><strong>Behavior:</strong> {formData.behavior}</p>
+                      <p><strong>Measurement:</strong> {formData.measurement}</p>
+                      <p><strong>Criteria:</strong> {formData.criteria}</p>
+                      <p><strong>Timeline:</strong> {formData.timeline}</p>
+                    </div>
+                  )}
 
               {saveFeedback && (
                 <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
@@ -2730,7 +2956,13 @@ export default function Home() {
                 >
                   Save Goal
                 </button>
-
+                <button
+                  type="button"
+                  onClick={handleDownloadTxt}
+                  className="rounded-xl border border-slate-300 px-5 py-3 transition hover:bg-slate-100"
+                >
+                  Download .txt
+                </button>
                 <button
                   type="button"
                   onClick={handleReset}
@@ -2738,6 +2970,24 @@ export default function Home() {
                 >
                   Reset Form
                 </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+              <h2 className="text-2xl font-semibold">Compliance Helper</h2>
+              <p className="mt-2 text-sm text-slate-500">
+                Quick reminders to keep the goal stronger for review and documentation.
+              </p>
+
+              <div className="mt-6 space-y-3">
+                {complianceTips.map((tip) => (
+                  <div
+                    key={tip}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"
+                  >
+                    {tip}
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -2828,7 +3078,7 @@ export default function Home() {
             <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
               <h2 className="text-2xl font-semibold">Goal Quality Check</h2>
               <p className="mt-2 text-sm text-slate-500">
-                Quick feedback to help make the goal clearer and more measurable.
+                Quick feedback to help make the goal clearer, measurable, and easier to review.
               </p>
 
               <div className="mt-6 grid gap-3">
