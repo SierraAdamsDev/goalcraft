@@ -2415,7 +2415,7 @@ Timeline: ${formData.timeline}
           <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
             GoalCraft
           </p>
-          <h1 className="mt-2 text-4xl font-bold">IEP Goal Generator</h1>
+          <h1 className="mt-2 text-4xl font-bold">IEP Goal Builder</h1>
           <p className="mt-3 max-w-3xl text-slate-600">
             Create clearer, more measurable IEP goals with domain-based options,
             grouped dropdowns, reusable templates, and quick quality feedback.
